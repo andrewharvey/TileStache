@@ -1,8 +1,9 @@
 """ Support for 8-bit image palettes in PNG output.
 
 PNG images can be significantly cut down in size by using a color look-up table.
-TileStache layers support Adobe Photoshop's .act file format for PNG output,
-and can be referenced in a layer configuration file like this:
+TileStache layers support either Adobe Photoshop's .act file format or a simple
+plain text variant of this for PNG output, and can be referenced in a layer
+configuration file like this:
 
     "osm":
     {
@@ -20,6 +21,11 @@ fixed-size 772-byte table with 256 3-byte RGB triplets, followed by a two-byte
 unsigned int with the number of defined colors (may be less than 256) and a
 finaly two-byte unsigned int with the optional index of a transparent color
 in the lookup table. If the final byte is 0xFFFF, there is no transparency.
+
+The plain text format is used whenever the URL given doesn't end in .act. The
+format is an initial line with the index of a transparent color in the
+following list of colors or 'None' if there is no transparency. Then a series
+of lines following in the format of 'r,g,b'.
 """
 from struct import unpack, pack
 from math import sqrt, ceil, log
@@ -33,25 +39,42 @@ except ImportError:
     import Image
 
 def load_palette(file_href):
-    """ Load colors from a Photoshop .act file, return palette info.
+    """ Load colors from either a Photoshop .act file, or a .txt file and
+        return palette info.
     
         Return tuple is an array of [ (r, g, b), (r, g, b), ... ],
         bit depth of the palette, and a numeric transparency index
         or None if not defined.
     """
-    bytes = urlopen(file_href).read()
-    count, t_index = unpack('!HH', bytes[768:768+4])
-    t_index = (t_index <= 0xff) and t_index or None
-    
     palette = []
+    t_index = None
     
-    for offset in range(0, count):
-        if offset == t_index:
-            rgb = 0xff, 0x99, 0x00
-        else:
-            rgb = unpack('!BBB', bytes[offset*3:(offset + 1)*3])
+    if file_href.endswith('act'):
+        bytes = urlopen(file_href).read()
+        count, t_index = unpack('!HH', bytes[768:768+4])
+        t_index = (t_index <= 0xff) and t_index or None
         
-        palette.append(rgb)
+        for offset in range(0, count):
+            if offset == t_index:
+                rgb = 0xff, 0x99, 0x00
+            else:
+                rgb = unpack('!BBB', bytes[offset*3:(offset + 1)*3])
+        
+            palette.append(rgb)
+    else:
+        palette_file = urlopen(file_href)
+        t_index = palette_file.readline().rstrip()
+        if t_index == 'None':
+            t_index = None
+        else:
+            t_index = int(t_index)
+        
+        rgb_str = palette_file.readline().rstrip()
+        while rgb_str:
+            rgb = rgb_str.split(',')
+            if len(rgb) == 3:
+                palette.append(tuple(map(int,rgb)))
+            rgb_str = palette_file.readline().rstrip()
     
     bits = int(ceil(log(len(palette)) / log(2)))
     
