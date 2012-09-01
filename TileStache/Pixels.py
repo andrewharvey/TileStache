@@ -1,8 +1,8 @@
 """ Support for 8-bit image palettes in PNG output.
 
 PNG images can be significantly cut down in size by using a color look-up table.
-TileStache layers support either Adobe Photoshop's .act file format or a simple
-plain text variant of this for PNG output, and can be referenced in a layer
+TileStache layers support either Adobe Photoshop's .act file format or GIMP's
+.txt plain text format for PNG output, and can be referenced in a layer
 configuration file like this:
 
     "osm":
@@ -23,9 +23,8 @@ finaly two-byte unsigned int with the optional index of a transparent color
 in the lookup table. If the final byte is 0xFFFF, there is no transparency.
 
 The plain text format is used whenever the URL given doesn't end in .act. The
-format is an initial line with the index of a transparent color in the
-following list of colors or 'None' if there is no transparency. Then a series
-of lines following in the format of 'r,g,b'.
+format is a list of lines of with the HTML-style hexadecimal color value. This
+is the format which GIMP uses when you export a palette as a Text file.
 """
 from struct import unpack, pack
 from math import sqrt, ceil, log
@@ -39,7 +38,7 @@ except ImportError:
     import Image
 
 def load_palette(file_href):
-    """ Load colors from either a Photoshop .act file, or a .txt file and
+    """ Load colors from either a Photoshop .act file, or a GIMP .txt file and
         return palette info.
     
         Return tuple is an array of [ (r, g, b), (r, g, b), ... ],
@@ -63,18 +62,12 @@ def load_palette(file_href):
             palette.append(rgb)
     else:
         palette_file = urlopen(file_href)
-        t_index = palette_file.readline().rstrip()
-        if t_index == 'None':
-            t_index = None
-        else:
-            t_index = int(t_index)
         
-        rgb_str = palette_file.readline().rstrip()
+        rgb_str = palette_file.readline().rstrip().lstrip('#')
         while rgb_str:
-            rgb = rgb_str.split(',')
-            if len(rgb) == 3:
-                palette.append(tuple(map(int,rgb)))
-            rgb_str = palette_file.readline().rstrip()
+            rgb = int(rgb_str[0:2], 16), int(rgb_str[2:4], 16), int(rgb_str[4:6], 16)
+            palette.append(rgb)
+            rgb_str = palette_file.readline().rstrip().lstrip('#')
     
     bits = int(ceil(log(len(palette)) / log(2)))
     
