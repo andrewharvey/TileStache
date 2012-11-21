@@ -460,7 +460,7 @@ def _open_layer(driver_name, parameters, dirpath):
     #
     return layer, datasource
 
-def _get_features(coord, properties, projection, layer, clipped, projected, spacing, id_property):
+def _get_features(coord, properties, projection, layer, clipped, projected, spacing, simplify, id_property):
     """ Return a list of features in an OGR layer with properties in GeoJSON form.
     
         Optionally clip features to coordinate bounding box, and optionally
@@ -506,6 +506,15 @@ def _get_features(coord, properties, projection, layer, clipped, projected, spac
         if mask and geometry.Intersect(mask):
             continue
         
+        if simplify is not None and geometry:
+            # Calculates the tile resolution in degrees
+            xmin, xmax, ymin, ymax = bbox.GetEnvelope()
+            xspan, yspan = xmax - xmin, ymax - ymin
+            # x and y axis average
+            tolerance = float(simplify) * ((abs(xspan) + abs(yspan)) / 1024)
+            # simplify
+            geometry = geometry.Simplify(tolerance)
+        
         if clipped:
             geometry = geometry.Intersection(bbox)
         
@@ -539,7 +548,7 @@ class Provider:
         See module documentation for explanation of constructor arguments.
     """
     
-    def __init__(self, layer, driver, parameters, clipped, verbose, projected, spacing, properties, precision, id_property):
+    def __init__(self, layer, driver, parameters, clipped, verbose, projected, spacing, properties, precision, simplify, id_property):
         self.layer      = layer
         self.driver     = driver
         self.clipped    = clipped
@@ -549,6 +558,7 @@ class Provider:
         self.parameters = parameters
         self.properties = properties
         self.precision  = precision
+        self.simplify   = simplify
         self.id_property = id_property
 
     @staticmethod
@@ -564,6 +574,7 @@ class Provider:
         kwargs['projected'] = bool(config_dict.get('projected', False))
         kwargs['verbose'] = bool(config_dict.get('verbose', False))
         kwargs['precision'] = int(config_dict.get('precision', 6))
+        kwargs['simplify'] = config_dict.get('simplify', None)
         
         if 'spacing' in config_dict:
             kwargs['spacing'] = float(config_dict.get('spacing', 0.0))
@@ -581,7 +592,7 @@ class Provider:
         """ Render a single tile, return a VectorResponse instance.
         """
         layer, ds = _open_layer(self.driver, self.parameters, self.layer.config.dirpath)
-        features = _get_features(coord, self.properties, self.layer.projection, layer, self.clipped, self.projected, self.spacing, self.id_property)
+        features = _get_features(coord, self.properties, self.layer.projection, layer, self.clipped, self.projected, self.spacing, self.simplify, self.id_property)
         response = {'type': 'FeatureCollection', 'features': features}
         
         if self.projected:
